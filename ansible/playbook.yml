@@ -1,0 +1,122 @@
+---
+- name: Configure EC2 for Kubernetes (microk8s) + ArgoCD
+  hosts: k8s_server
+  become: true
+
+  vars:
+    argocd_namespace: argocd
+    microk8s_channel: "1.29/stable"
+
+  tasks:
+
+    # ── System Updates ──────────────────────────────────────────────────────────
+    - name: Update apt cache and upgrade packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Install required system packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - snapd
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - python3-pip
+        state: present
+
+    # ── microk8s ────────────────────────────────────────────────────────────────
+    - name: Install microk8s via snap
+      community.general.snap:
+        name: microk8s
+        classic: yes
+        channel: "{{ microk8s_channel }}"
+
+    - name: Add ubuntu user to microk8s group
+      user:
+        name: ubuntu
+        groups: microk8s
+        append: yes
+
+    - name: Wait for microk8s to be ready
+      command: microk8s status --wait-ready
+      changed_when: false
+      timeout: 120
+
+    - name: Enable microk8s addons (dns, storage, registry)
+      command: microk8s enable dns storage registry
+      changed_when: false
+
+    - name: Create kubectl alias for ubuntu user
+      lineinfile:
+        path: /home/ubuntu/.bashrc
+        line: "alias kubectl='microk8s kubectl'"
+        state: present
+
+    - name: Export KUBECONFIG for ubuntu user
+      lineinfile:
+        path: /home/ubuntu/.bashrc
+        line: "export KUBECONFIG=/var/snap/microk8s/current/credentials/client.config"
+        state: present
+
+    # ── ArgoCD ──────────────────────────────────────────────────────────────────
+    - name: Create argocd namespace
+      command: microk8s kubectl create namespace {{ argocd_namespace }}
+      register: argocd_ns
+      failed_when: argocd_ns.rc != 0 and 'already exists' not in argocd_ns.stderr
+      changed_when: argocd_ns.rc == 0
+
+    - name: Install ArgoCD
+      command: >
+        microk8s kubectl apply -n {{ argocd_namespace }}
+        -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+      changed_when: false
+
+    - name: Wait for ArgoCD server to be ready
+      command: >
+        microk8s kubectl wait --for=condition=available
+        deployment/argocd-server -n {{ argocd_namespace }} --timeout=180s
+      changed_when: false
+
+    - name: Patch ArgoCD server service to NodePort (port 30080)
+      command: >
+        microk8s kubectl patch svc argocd-server -n {{ argocd_namespace }}
+        -p '{"spec":{"type":"NodePort","ports":[{"port":443,"targetPort":8080,"nodePort":30080,"protocol":"TCP","name":"https"}]}}'
+      changed_when: false
+
+    # ── Docker (for local image builds if needed) ───────────────────────────────
+    - name: Install Docker
+      apt:
+        name:
+          - docker.io
+        state: present
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Enable and start Docker
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    # ── Print ArgoCD initial admin password ─────────────────────────────────────
+    - name: Get ArgoCD initial admin password
+      command: >
+        microk8s kubectl get secret argocd-initial-admin-secret
+        -n {{ argocd_namespace }}
+        -o jsonpath="{.data.password}"
+      register: argocd_pass_b64
+      changed_when: false
+
+    - name: Decode and display ArgoCD password
+      debug:
+        msg: "ArgoCD admin password: {{ argocd_pass_b64.stdout | b64decode }}"
