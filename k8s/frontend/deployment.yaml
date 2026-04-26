@@ -17,7 +17,7 @@ spec:
       containers:
         - name: todo-frontend
           # IMAGE TAG is updated automatically by GitHub Actions CI
-          image: YOUR_DOCKERHUB_USERNAME/todo-frontend:latest
+          image: 22i0840/todo-frontend:latest
           ports:
             - containerPort: 80
           livenessProbe:
