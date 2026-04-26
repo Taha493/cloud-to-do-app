@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: todo-app
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    # !! Replace with your actual GitHub repo URL
+    repoURL: https://github.com/YOUR_GITHUB_USERNAME/todo-app
+    targetRevision: main
+    # ArgoCD watches the entire k8s/ folder
+    path: k8s
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+
+  syncPolicy:
+    automated:
+      prune: true       # Remove resources deleted from git
+      selfHeal: true    # Auto-fix manual cluster changes
+    syncOptions:
+      - CreateNamespace=true
