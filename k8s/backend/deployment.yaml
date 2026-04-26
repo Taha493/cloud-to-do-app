@@ -17,7 +17,7 @@ spec:
       containers:
         - name: todo-backend
           # IMAGE TAG is updated automatically by GitHub Actions CI
-          image: YOUR_DOCKERHUB_USERNAME/todo-backend:latest
+          image: 22i0840/todo-backend:latest
           ports:
             - containerPort: 8000
           livenessProbe:
